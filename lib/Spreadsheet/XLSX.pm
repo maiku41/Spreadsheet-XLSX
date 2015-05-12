@@ -6,7 +6,7 @@ use warnings;
 
 our @ISA = qw();
 
-our $VERSION = '0.13';
+our $VERSION = '0.14';
 
 use Archive::Zip;
 use Spreadsheet::XLSX::Fmt2007;
@@ -84,12 +84,11 @@ sub new {
     my $member_rels = $self->{zip}->memberNamed('xl/_rels/workbook.xml.rels') or die("xl/_rels/workbook.xml.rels not found in this zip\n");
 
     my %rels = ();
-
-    foreach ($member_rels->contents =~ /\<Relationship (.*?)\/?\>/g) {
-
-        /^Id="(.*?)".*?Target="(.*?)"/ or next;
-
-        $rels{$1} = $2;
+    foreach ($member_rels->contents =~ /(\<Relationship .*?\/?\>)/g) {
+        my $attrs = parse_tag_attributes($_);
+        if (exists $attrs->{Id} and exists $attrs->{Target}) {
+            $rels{$attrs->{Id}} = $attrs->{Target};
+        }
 
     }
 
@@ -121,7 +120,6 @@ sub new {
         };
 
         foreach ($other =~ /(\S+=".*?")/gsm) {
-
             my ($k, $v) = split /=?"/;    #"
 
             if ($k eq 'name') {
@@ -154,7 +152,9 @@ sub new {
         my $s2   = 0;
         my $sty  = 0;
         foreach ($member_sheet->contents =~ /(\<.*?\/?\>|.*?(?=\<))/g) {
-            if (/^\<c r=\"([A-Z])([A-Z]?)(\d+)\"/) {
+            if (/^(\<c\s.*)/) {
+                my $attrs = parse_tag_attributes($_);
+                $attrs->{r} =~ /([A-Z])([A-Z]?)(\d+)/;
 
                 $col = ord($1) - 65;
 
@@ -166,9 +166,9 @@ sub new {
 
                 $row = $3 - 1;
 
-                $s   = m/t=\"s\"/      ? 1  : 0;
-                $s2  = m/t=\"str\"/    ? 1  : 0;
-                $sty = m/s="([0-9]+)"/ ? $1 : 0;
+                $s   = exists $attrs->{t} && $attrs->{t} eq 's';
+                $s2  = exists $attrs->{t} && $attrs->{t} eq 'str';
+                $sty = exists $attrs->{s} && $attrs->{s} =~ /(\d+)/ ? $1 : 0;
 
             } elsif (/^<v/) {
                 $flag = 1;
@@ -221,6 +221,21 @@ sub new {
 
     return $oBook;
 
+}
+
+sub parse_tag_attributes {
+    my ($tag) = @_;
+    my %attrs;
+
+    my ($attr_string) = $tag =~ /\<[^\s]+(.*)(\/)?>/;
+die $tag unless defined $attr_string;
+    $attr_string =~ s/^\s+//;
+    foreach my $attr (split(/\s+/,$attr_string)) {
+        my ($name, $value) = $attr =~ /([^=]+)="(.+)"/;
+        $attrs{$name} = $value;
+    }
+
+    return \%attrs;
 }
 
 1;
